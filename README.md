@@ -48,5 +48,7 @@ Requires JDK 17 or newer. You don't need to install Maven: the included wrapper 
 
 ```bash
 mvnw.cmd test              # Windows: run JUnit tests   (macOS/Linux: ./mvnw test)
-mvnw.cmd spring-boot:run   # start the server on http://localhost:8080
+mvnw.cmd spring-boot:run   # start the server, then open http://localhost:8080
 ```
+
+The dashboard (`src/main/resources/static/`) is plain HTML, CSS and JavaScript. It calls the REST API with `fetch()` and redraws from `/api/state` after every action.

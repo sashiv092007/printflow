@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PrintFlow — Fair Priority-Based Print Job Management</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <div>
+      <h1><span class="logo">⎙</span> PrintFlow</h1>
+      <p class="tagline">Fair Priority-Based Print Job Management System</p>
+    </div>
+    <div class="header-actions">
+      <button id="btn-sample" class="btn btn-ghost" type="button">Load demo jobs</button>
+      <button id="btn-reset" class="btn btn-ghost" type="button">Reset</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- Problem statement -->
+  <section class="problem card">
+    <div>
+      <h2>The problem</h2>
+      <p>A shared printer receives normal and urgent documents. Urgent documents must be printed first,
+        but normal users must still be served fairly, in the order they arrived.</p>
+    </div>
+    <ul class="rule-list">
+      <li><span class="badge urgent">URGENT</span> first</li>
+      <li><span class="badge high">HIGH</span> next</li>
+      <li><span class="badge normal">NORMAL</span> last, first-in-first-out</li>
+      <li>Equal priority → earlier arrival wins</li>
+    </ul>
+  </section>
+
+  <!-- Stats -->
+  <section class="stats" id="stats"></section>
+
+  <!-- Toast message -->
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- Row: submit / printer / search -->
+  <section class="grid-3">
+
+    <form id="job-form" class="card" novalidate>
+      <h2>Submit print job</h2>
+      <label>User name
+        <input name="user" type="text" placeholder="e.g. Shiv" autocomplete="off" required>
+      </label>
+      <label>Document name
+        <input name="document" type="text" placeholder="e.g. Lab_Record.pdf" autocomplete="off" required>
+      </label>
+      <div class="form-row">
+        <label>Pages
+          <input name="pages" type="number" min="1" step="1" value="1" required>
+        </label>
+        <label>Priority
+          <select name="priority">
+            <option value="NORMAL">Normal</option>
+            <option value="HIGH">High</option>
+            <option value="URGENT">Urgent</option>
+          </select>
+        </label>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit">Submit print job</button>
+      <p class="hint">Normal → FIFO queue · High/Urgent → max-heap · every job → hash map</p>
+    </form>
+
+    <div class="card printer" id="printer-card">
+      <div class="printer-head">
+        <h2>Printer</h2>
+        <span id="printer-status" class="pill idle">IDLE</span>
+      </div>
+      <div id="printer-body" class="printer-body"></div>
+      <div class="printer-actions">
+        <button id="btn-start" class="btn btn-primary" type="button">Start next job</button>
+        <button id="btn-complete" class="btn btn-success" type="button">Complete current job</button>
+      </div>
+      <p class="hint">Completing a job automatically starts the next valid one.</p>
+    </div>
+
+    <div class="card">
+      <h2>Search &amp; cancel</h2>
+      <form id="search-form" class="search-row">
+        <input id="search-input" type="text" placeholder="PF-1002" autocomplete="off" aria-label="Job ID">
+        <button class="btn btn-primary" type="submit">Search</button>
+      </form>
+      <div id="search-result" class="search-result">
+        <p class="muted">Enter a job ID, or click any job below. Lookup is an O(1) hash-map <code>get()</code>.</p>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- Waiting jobs -->
+  <section class="card">
+    <div class="section-head">
+      <h2>Waiting jobs</h2>
+      <p class="muted">Cancelled jobs stay in place (<strong>lazy deletion</strong>) until they reach the front or the heap top.</p>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <h3>Urgent / high priority — binary max-heap</h3>
+        <p class="muted small">Key = (priority level, −arrival sequence). The root is always the next priority job.</p>
+        <div id="heap-tree" class="heap-tree"></div>
+        <div class="array-label">Internal array</div>
+        <div id="heap-array" class="heap-array"></div>
+      </div>
+      <div>
+        <h3>Normal — FIFO queue (linked nodes)</h3>
+        <p class="muted small">Enqueue at REAR, dequeue from FRONT. Both O(1).</p>
+        <div id="queue-view" class="queue-view"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- History + hash map -->
+  <section class="grid-2">
+    <div class="card">
+      <h2>History</h2>
+      <div class="history-cols">
+        <div>
+          <h3>Completed</h3>
+          <ol id="completed-list" class="history-list"></ol>
+        </div>
+        <div>
+          <h3>Cancelled</h3>
+          <ol id="cancelled-list" class="history-list"></ol>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Hash map — job ID → job</h2>
+      <p class="muted small" id="hashmap-meta"></p>
+      <div id="hashmap-view" class="hashmap-view"></div>
+    </div>
+  </section>
+
+  <!-- DSA explanation -->
+  <section class="grid-2">
+    <div class="card">
+      <h2>Data structures used</h2>
+      <table class="table">
+        <thead><tr><th>Structure</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><strong>FIFO Queue</strong><br><span class="muted small">linked nodes</span></td>
+              <td>Fair print order for normal jobs: first submitted, first printed.</td></tr>
+          <tr><td><strong>Binary Max-Heap</strong><br><span class="muted small">array-based</span></td>
+              <td>Always exposes the most urgent job at the root; earlier arrival breaks ties.</td></tr>
+          <tr><td><strong>Hash Map</strong><br><span class="muted small">separate chaining</span></td>
+              <td>Maps each job ID to its job object for O(1) search, status and cancellation.</td></tr>
+          <tr><td><strong>Lazy deletion</strong></td>
+              <td>Cancel only flips the status in the hash map. The scheduler skips cancelled jobs
+                when they reach the queue front or heap top, avoiding an O(n) removal.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Time complexity</h2>
+      <table class="table" id="complexity-table">
+        <thead><tr><th>Operation</th><th>Time</th><th>How</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<footer class="wrap footer muted small">
+  PrintFlow · FIFO queue + binary max-heap + hash map · Spring Boot + vanilla JavaScript
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
