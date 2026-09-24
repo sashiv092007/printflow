@@ -247,4 +247,71 @@ public class PrintScheduler {
         state.put("stats", stats);
         return state;
     }
+
+    /**
+     * The internal layout of each data structure, for the DSA visualiser:
+     * queue from FRONT to REAR, heap as its array with parent/child indices,
+     * and the hash map's bucket chains.
+     */
+    public synchronized Map<String, Object> getStructures() {
+        List<Map<String, Object>> queueNodes = new ArrayList<>();
+        for (PrintJob job : normalQueue.toList()) {
+            Map<String, Object> node = new LinkedHashMap<>();
+            node.put("jobId", job.getJobId());
+            node.put("status", job.getStatus());
+            queueNodes.add(node);
+        }
+        Map<String, Object> queue = new LinkedHashMap<>();
+        queue.put("front", queueNodes.isEmpty() ? null : queueNodes.get(0).get("jobId"));
+        queue.put("rear", queueNodes.isEmpty() ? null : queueNodes.get(queueNodes.size() - 1).get("jobId"));
+        queue.put("size", normalQueue.size());
+        queue.put("nodes", queueNodes);
+
+        List<PrintJob> heapJobs = priorityHeap.toList();
+        int n = heapJobs.size();
+        List<Map<String, Object>> heapNodes = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            PrintJob job = heapJobs.get(i);
+            Map<String, Object> node = new LinkedHashMap<>();
+            node.put("index", i);
+            node.put("jobId", job.getJobId());
+            node.put("priority", job.getPriority());
+            node.put("status", job.getStatus());
+            node.put("key", job.getKey());
+            node.put("parent", i == 0 ? null : (i - 1) / 2);
+            node.put("left", 2 * i + 1 < n ? 2 * i + 1 : null);
+            node.put("right", 2 * i + 2 < n ? 2 * i + 2 : null);
+            heapNodes.add(node);
+        }
+        Map<String, Object> heap = new LinkedHashMap<>();
+        heap.put("size", n);
+        heap.put("nodes", heapNodes);
+
+        Map<String, Object> hashMap = new LinkedHashMap<>();
+        hashMap.put("size", jobsById.size());
+        hashMap.put("capacity", jobsById.capacity());
+        hashMap.put("loadFactor", (double) jobsById.size() / jobsById.capacity());
+        hashMap.put("buckets", jobsById.bucketView());
+
+        Map<String, Object> structures = new LinkedHashMap<>();
+        structures.put("normalQueue", queue);
+        structures.put("priorityHeap", heap);
+        structures.put("hashMap", hashMap);
+        structures.put("complexities", List.of(
+                complexity("Submit normal job", "O(1)", "Enqueue at the rear of the linked queue"),
+                complexity("Submit urgent/high job", "O(log n)", "Heap insert + heapifyUp"),
+                complexity("Search job by ID", "O(1) average", "Hash map lookup"),
+                complexity("Cancel job", "O(1) average", "Hash map lookup + status change (lazy deletion)"),
+                complexity("Print next urgent/high job", "O(log n)", "extractMax + heapifyDown"),
+                complexity("Print next normal job", "O(1)", "Dequeue from the front")));
+        return structures;
+    }
+
+    private static Map<String, String> complexity(String operation, String time, String how) {
+        Map<String, String> row = new LinkedHashMap<>();
+        row.put("operation", operation);
+        row.put("time", time);
+        row.put("how", how);
+        return row;
+    }
 }
