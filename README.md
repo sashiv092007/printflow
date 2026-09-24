@@ -27,6 +27,21 @@ Cancelling a job uses **lazy deletion**. Only the job's status in the hash map i
 | Start next urgent/high job | O(log n) |
 | Start next normal job | O(1) |
 
+## REST API
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/jobs` | POST | Submit a job. Body: `{"user", "document", "pages", "priority"}` |
+| `/api/state` | GET | Full dashboard state |
+| `/api/jobs/{jobId}` | GET | Search a job (hash map lookup) |
+| `/api/jobs/{jobId}/cancel` | PUT | Cancel a waiting job (lazy deletion) |
+| `/api/printer/start-next` | POST | Send the next valid job to the idle printer |
+| `/api/printer/complete` | POST | Complete the current job and auto-start the next |
+| `/api/structures` | GET | Queue nodes, heap array with parent/child indices, hash-map buckets, complexities |
+| `/api/reset` | POST | Clear all data |
+
+Actions return `{"message", ..., "skipped", "state"}`, so the frontend can redraw from `state`. Errors return `{"error": "..."}` with status 400 (bad input), 404 (unknown job ID) or 409 (action not allowed right now).
+
 ## Run
 
 Requires JDK 17 or newer. You don't need to install Maven: the included wrapper downloads it.
