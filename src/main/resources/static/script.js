@@ -39,6 +39,7 @@ async function api(method, path, body) {
 
 /** Run an action, show its message (or error), then redraw, animating any heap steps. */
 async function run(action) {
+  if (activeBurst) activeBurst.fast = true;   // another action makes the rest of a burst instant
   await player.stop();
   const capacityBefore = structures ? structures.hashMap.capacity : null;
   let data = null;
@@ -64,7 +65,7 @@ async function run(action) {
   await refresh(data && data.heapTrace && data.heapTrace.length ? data.heapTrace : null);
 }
 
-async function refresh(trace = null) {
+async function refresh(trace = null, { boost = 1 } = {}) {
   const before = structures;
   try {
     [state, structures] = await Promise.all([api("GET", "/api/state"), api("GET", "/api/structures")]);
@@ -78,7 +79,7 @@ async function refresh(trace = null) {
   }
   if (trace && $("pl-enabled").checked) {
     render({ skipHeap: true, skipPrinter: trace.some((s) => s.kind === "print"), resized });
-    await player.play(trace);
+    await player.play(trace, { boost });
     render();
   } else {
     render({ resized });
@@ -125,7 +126,7 @@ function waitedTurns(job) {
 }
 
 /** Clickable job chip used in the heap and queue views. */
-function jobNode(job, { extraClass = "", showAge = false } = {}) {
+function jobNode(job, { extraClass = "", showAge = false, flip = "job" } = {}) {
   const cancelled = job.status === "CANCELLED";
   const tag = cancelled ? "CANCELLED" : job.aged ? "AGED → HIGH" : job.priority;
   let age = "";
@@ -138,9 +139,10 @@ function jobNode(job, { extraClass = "", showAge = false } = {}) {
   }
   return `
     <button type="button" class="job-node ${job.priority} ${job.aged ? "aged" : ""} ${cancelled ? "cancelled" : ""} ${extraClass}"
-            data-id="${esc(job.jobId)}"
+            data-id="${esc(job.jobId)}" data-flip="${flip}:${esc(job.jobId)}"
             title="${esc(job.jobId)} · ${esc(job.document)} · ${esc(job.user)} · key ${keyText(job.key)}">
       <span class="id">${esc(job.jobId)}</span>
+      <span class="id-short">${esc(job.jobId.replace(/^PF-/, ""))}</span>
       <span class="doc">${esc(job.document)}</span>
       <span class="tag">${tag}</span>${age}
     </button>`;
@@ -149,6 +151,7 @@ function jobNode(job, { extraClass = "", showAge = false } = {}) {
 // ---------- Rendering ----------
 
 function render({ skipHeap = false, skipPrinter = false, resized = false } = {}) {
+  const before = snapshotPositions();
   renderStats();
   if (!skipPrinter) renderPrinter();
   if (!skipHeap) renderHeap(state.priorityHeap);
@@ -157,6 +160,86 @@ function render({ skipHeap = false, skipPrinter = false, resized = false } = {})
   renderHistory();
   renderHashMap(resized);
   renderComplexities();
+  animateMoves(before);
+}
+
+// ---------- Motion: jobs travel between queue, heap, printer and history ----------
+
+/**
+ * Every element with data-flip="scope:ID" is one job in one place. Before a
+ * redraw we record where each one is; after it, each job glides from its old
+ * spot to its new one (FLIP: First, Last, Invert, Play). A job that changed
+ * section (queue → printer, heap → printer, printer → history, queue → heap)
+ * flies there as a floating copy, so scrolling boxes cannot clip it.
+ */
+function snapshotPositions() {
+  const map = new Map();
+  document.querySelectorAll("[data-flip]").forEach((el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width) map.set(el.dataset.flip, { rect: r, zone: zoneOf(el) });
+  });
+  return map;
+}
+
+function zoneOf(el) {
+  const zone = el.closest("[data-zone]");
+  return zone ? zone.dataset.zone : "";
+}
+
+function animateMoves(before) {
+  if (!before || !motionOn()) return;
+  let moved = false;
+  document.querySelectorAll("[data-flip]").forEach((el) => {
+    const now = el.getBoundingClientRect();
+    if (!now.width) return;
+    const old = before.get(el.dataset.flip);
+    if (!old) {
+      el.animate([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "none" }],
+        { duration: 450, easing: "cubic-bezier(.2,.8,.3,1.2)" });
+      return;
+    }
+    const dx = old.rect.left - now.left;
+    const dy = old.rect.top - now.top;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+    moved = true;
+    const easing = "cubic-bezier(.45,0,.2,1)";
+    if (old.zone === zoneOf(el)) {
+      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: 750, easing });
+      return;
+    }
+    // Changed section: a small job chip glides from the old place to the new one,
+    // then the new element lights up. The chip never stretches, so text stays crisp.
+    const id = el.dataset.flip.split(":")[1];
+    const job = allJobs().find((j) => j.jobId === id);
+    const chip = document.createElement("div");
+    chip.className = `fly-chip ${job ? job.priority : ""}`;
+    chip.textContent = id;
+    document.body.appendChild(chip);
+    const c = chip.getBoundingClientRect();
+    const fromX = old.rect.left + old.rect.width / 2 - c.width / 2;
+    const fromY = old.rect.top + old.rect.height / 2 - c.height / 2;
+    const toX = now.left + now.width / 2 - c.width / 2;
+    const toY = now.top + now.height / 2 - c.height / 2;
+    const lift = Math.min(80, Math.abs(toY - fromY) / 3 + 30);
+    el.style.visibility = "hidden";
+    chip.animate([
+      { transform: `translate(${fromX}px, ${fromY}px) scale(.9)`, opacity: 0 },
+      { transform: `translate(${fromX}px, ${fromY}px) scale(1.05)`, opacity: 1, offset: 0.12 },
+      { transform: `translate(${(fromX + toX) / 2}px, ${Math.min(fromY, toY) - lift}px) scale(1.12)`, offset: 0.55 },
+      { transform: `translate(${toX}px, ${toY}px) scale(1)`, opacity: 1 },
+    ], { duration: 950, easing }).finished.finally(() => {
+      chip.remove();
+      el.style.visibility = "";
+      el.animate([{ boxShadow: "0 0 0 6px rgba(59, 91, 219, .35)" }, { boxShadow: "0 0 0 0 rgba(59, 91, 219, 0)" }], 700);
+    });
+  });
+  const lines = document.querySelector(".heap-lines");
+  if (moved && lines) lines.animate([{ opacity: 0 }, { opacity: 0 }, { opacity: 1 }], 900);
+}
+
+/** Movement follows the Animate switch. */
+function motionOn() {
+  return $("pl-enabled").checked;
 }
 
 function renderStats() {
@@ -169,8 +252,31 @@ function renderStats() {
     ["Cancelled", s.cancelled],
     ["Pages printed", s.pagesPrinted],
   ];
-  $("stats").innerHTML = items.map(([label, value]) => `
-    <div class="stat"><div class="stat-value">${value}</div><div class="stat-label">${label}</div></div>`).join("");
+  const box = $("stats");
+  if (!box.children.length) {
+    box.innerHTML = items.map(([label]) => `
+      <div class="stat"><div class="stat-value">0</div><div class="stat-label">${label}</div></div>`).join("");
+  }
+  items.forEach(([, value], i) => countTo(box.children[i], value));
+}
+
+/** Roll a stat number to its new value and pulse the tile when it changes. */
+function countTo(tile, target) {
+  const el = tile.querySelector(".stat-value");
+  const from = Number(el.dataset.value || 0);
+  el.dataset.value = target;
+  if (from === target) return;
+  if (!motionOn()) { el.textContent = target; return; }
+  tile.classList.remove("bump");
+  void tile.offsetWidth;
+  tile.classList.add("bump");
+  const start = performance.now();
+  const step = (t) => {
+    const k = Math.min(1, (t - start) / 500);
+    el.textContent = Math.round(from + (target - from) * (1 - Math.pow(1 - k, 3)));
+    if (k < 1 && el.dataset.value == target) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 }
 
 function renderPrinter() {
@@ -180,7 +286,7 @@ function renderPrinter() {
   status.className = `pill ${job ? "printing" : "idle"}`;
 
   $("printer-body").innerHTML = job
-    ? `<div class="printer-job">
+    ? `<div class="printer-job" data-flip="job:${esc(job.jobId)}">
          <div class="job-id">${esc(job.jobId)}</div>
          <div class="doc">${esc(job.document)}</div>
          <dl class="meta">
@@ -216,7 +322,9 @@ function renderHeap(jobs) {
   // Level k holds array indices 2^k − 1 … 2^(k+1) − 2.
   // Missing positions get empty slots so each node sits above its children.
   const levels = Math.floor(Math.log2(jobs.length)) + 1;
-  let html = `<div class="heap-inner" style="min-width:${Math.pow(2, levels - 1) * 74}px">
+  // Deeper trees get smaller nodes so the whole tree always fits its column.
+  const density = levels <= 3 ? "d-full" : levels === 4 ? "d-compact" : levels === 5 ? "d-mini" : "d-dot";
+  let html = `<div class="heap-inner ${density}">
                 <svg class="heap-lines"></svg>`;
   for (let k = 0; k < levels; k++) {
     const start = Math.pow(2, k) - 1;
@@ -240,7 +348,7 @@ function renderHeap(jobs) {
 
   array.innerHTML = jobs.map((job, i) => `
     <div class="heap-cell ${job && job.status === "CANCELLED" ? "cancelled" : ""} ${job ? "" : "hole"}"
-         data-index="${i}" title="${job ? "key " + keyText(job.key) : "empty"}">
+         data-index="${i}" ${job ? `data-flip="cell:${esc(job.jobId)}"` : ""} title="${job ? "key " + keyText(job.key) : "empty"}">
       <span class="idx">[${i}]</span>${job ? esc(job.jobId) : "—"}
     </div>`).join("");
 }
@@ -296,16 +404,16 @@ function renderAging() {
 }
 
 function renderHistory() {
-  const item = (job, detail) => `
-    <li><span class="id">${esc(job.jobId)}</span>
+  const item = (job, detail, flip) => `
+    <li data-flip="${flip}:${esc(job.jobId)}"><span class="id">${esc(job.jobId)}</span>
         <span class="badge ${job.priority.toLowerCase()}">${job.priority}</span>
         ${job.aged ? `<span class="badge aged">AGED</span>` : ""}
         <span class="doc">${esc(job.document)} · ${esc(job.user)} · ${detail}</span></li>`;
   $("completed-list").innerHTML = state.completed.length
-    ? state.completed.map((j) => item(j, `${j.pages} page${j.pages === 1 ? "" : "s"}`)).join("")
+    ? [...state.completed].reverse().map((j) => item(j, `${j.pages} page${j.pages === 1 ? "" : "s"}`, "job")).join("")
     : `<li class="muted">None yet</li>`;
   $("cancelled-list").innerHTML = state.cancelled.length
-    ? state.cancelled.map((j) => item(j, `cancelled at turn ${j.finishedTurn}`)).join("")
+    ? [...state.cancelled].reverse().map((j) => item(j, `cancelled at turn ${j.finishedTurn}`, "hist")).join("")
     : `<li class="muted">None yet</li>`;
 }
 
@@ -338,7 +446,7 @@ function renderHashMap(resized = false) {
       <span class="bucket-index">[${i}]</span>
       ${keys.length
         ? keys.map((key, pos) => `<span class="bucket-entry ${statusById[key] || ""} ${isProbe && pos < probed.comparisons ? "walked" : ""}"
-              data-id="${esc(key)}" style="--i:${i}" title="${esc(key)} → ${statusById[key] || ""}">${esc(key)}</span>`)
+              data-id="${esc(key)}" data-flip="hash:${esc(key)}" title="${esc(key)} → ${statusById[key] || ""}">${esc(key)}</span>`)
             .join(`<span class="chain-arrow">→</span>`)
         : `<span class="bucket-null">null</span>`}
     </div>`;
@@ -346,9 +454,6 @@ function renderHashMap(resized = false) {
   const view = $("hashmap-view");
   view.innerHTML = html;
   if (resized) {
-    view.classList.remove("rehash");
-    void view.offsetWidth;
-    view.classList.add("rehash");
     flash(note);
   }
   if (probed) {
@@ -415,7 +520,9 @@ const player = {
   done: Promise.resolve(),
   anims: new Set(),
 
-  speed() { return Number($("pl-speed").value) || 1; },
+  boost: 1,   // extra speed-up while a burst of jobs is animating
+
+  speed() { return (Number($("pl-speed").value) || 1) * this.boost; },
 
   /** Wait `ms` (scaled by speed). While paused, waits for Next step or Resume. */
   hold(ms) {
@@ -463,7 +570,8 @@ const player = {
     await this.done;
   },
 
-  async play(trace) {
+  async play(trace, { boost = 1 } = {}) {
+    this.boost = boost;
     let finished;
     this.done = new Promise((resolve) => { finished = resolve; });
     this.running = true;
@@ -478,6 +586,7 @@ const player = {
       this.skipping = false;
       this.paused = false;
       this.resume = null;
+      this.boost = 1;
       updatePlayerButtons();
       finished();
     }
@@ -489,7 +598,7 @@ function updatePlayerButtons() {
   $("pl-pause").disabled = !p.running;
   $("pl-pause").textContent = p.paused ? "Resume" : "Pause";
   $("pl-next").disabled = !(p.running && p.paused);
-  $("pl-skip").disabled = !p.running;
+  $("pl-skip").disabled = !p.running && !activeBurst;
   $("pl-replay").disabled = p.running || !lastTrace;
   $("heap-player").classList.toggle("live", p.running);
 }
@@ -897,7 +1006,10 @@ $("aging-toggle").addEventListener("change", (event) =>
 // Player controls
 $("pl-pause").addEventListener("click", () => (player.paused ? player.unpause() : player.pause()));
 $("pl-next").addEventListener("click", () => player.next());
-$("pl-skip").addEventListener("click", () => player.stop());
+$("pl-skip").addEventListener("click", () => {
+  if (activeBurst) activeBurst.fast = true;   // the remaining jobs arrive without animation
+  player.stop();
+});
 $("pl-replay").addEventListener("click", async () => {
   if (!lastTrace || player.running) return;
   await player.play(lastTrace);
@@ -919,6 +1031,67 @@ for (const id of ["pl-speed", "pl-enabled"]) {
   });
 }
 
+// ---------- Bursts: several jobs arriving one after another ----------
+
+/**
+ * Submit jobs one at a time and animate each arrival: normal jobs pop into the
+ * queue at REAR, priority jobs are inserted into the heap and bubble up live.
+ * `more(count, capacity, startCapacity)` can ask for extra jobs (Rush hour
+ * keeps going until the hash map resizes). Skip makes the rest arrive instantly.
+ */
+let activeBurst = null;
+
+async function burst(jobs, { more = () => false } = {}) {
+  if (activeBurst) return null;
+  await player.stop();
+  const current = { fast: !$("pl-enabled").checked };
+  activeBurst = current;
+  setBurstButtons(true);
+  const startCapacity = structures ? structures.hashMap.capacity : 16;
+  const ids = [];
+  const traces = [];
+  let capacity = startCapacity;
+  try {
+    while (ids.length < jobs.length || more(ids.length, capacity, startCapacity)) {
+      const data = await api("POST", "/api/jobs", jobs[ids.length % jobs.length]);
+      ids.push(data.job.jobId);
+      capacity = data.state.hashMap.capacity;
+      traces.push(...data.heapTrace);
+      if (current.fast) continue;
+      toast(`Arrived: ${data.job.jobId} (${data.job.priority}), job ${ids.length} of the burst.`, "ok");
+      await refresh(data.heapTrace.length ? data.heapTrace : null, { boost: 1.6 });
+      if (!data.heapTrace.length) await pause(650);
+    }
+  } catch (err) {
+    toast(err.message, "err");
+  } finally {
+    activeBurst = null;
+    setBurstButtons(false);
+  }
+  await refresh();
+  if (traces.length) {
+    lastTrace = traces;   // Replay shows the whole burst
+    const inserts = traces.filter((step) => step.op === "insert").length;
+    $("player-title").textContent = "Burst finished";
+    $("player-step").textContent = "";
+    $("player-counters").innerHTML = "";
+    narrate(`${ids.length} jobs arrived; ${inserts} of them went into the heap.
+             Press <b>Replay</b> to watch ${inserts === 1 ? "that heap insert" : `all ${inserts} heap inserts, one after another`}.`);
+  }
+  updatePlayerButtons();
+  return { ids, startCapacity, capacity };
+}
+
+function setBurstButtons(busy) {
+  for (const id of ["btn-sample", "btn-rush", "btn-reset"]) $(id).disabled = busy;
+  updatePlayerButtons();
+}
+
+/** A short gap between arrivals, scaled by the speed setting. */
+function pause(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms / (Number($("pl-speed").value) || 1)));
+}
+
 // The evaluation demo: three normal jobs, then one urgent job.
 const DEMO_JOBS = [
   { user: "Shiv", document: "Lab_Record.pdf", pages: 15, priority: "NORMAL" },
@@ -927,13 +1100,10 @@ const DEMO_JOBS = [
   { user: "Admin", document: "Exam_Papers.pdf", pages: 4, priority: "URGENT" },
 ];
 
-$("btn-sample").addEventListener("click", () => run(async () => {
-  const ids = [];
-  for (const job of DEMO_JOBS) {
-    ids.push((await api("POST", "/api/jobs", job)).job.jobId);
-  }
-  return { message: `Loaded demo jobs ${ids.join(", ")}.` };
-}));
+$("btn-sample").addEventListener("click", async () => {
+  const result = await burst(DEMO_JOBS);
+  if (result) toast(`Loaded demo jobs ${result.ids.join(", ")}.`, "ok");
+});
 
 // A burst of mostly priority jobs: normal jobs get passed over (aging kicks in),
 // sequential IDs start colliding, and the hash map grows past 0.75 and resizes.
@@ -949,22 +1119,16 @@ const RUSH_JOBS = [
   { user: "Library", document: "Book_List.pdf", pages: 4, priority: "HIGH" },
 ];
 
-$("btn-rush").addEventListener("click", () => run(async () => {
-  const startCapacity = structures ? structures.hashMap.capacity : 16;
-  let capacity = startCapacity;
-  let count = 0;
+$("btn-rush").addEventListener("click", async () => {
   // Send the whole burst, then keep going until the hash map has resized once.
-  while (count < RUSH_JOBS.length || (capacity === startCapacity && count < 40)) {
-    const data = await api("POST", "/api/jobs", RUSH_JOBS[count % RUSH_JOBS.length]);
-    capacity = data.state.hashMap.capacity;
-    count++;
-  }
-  return {
-    message: `Rush hour: ${count} jobs arrived.`
-      + (capacity > startCapacity ? ` The hash map grew from ${startCapacity} to ${capacity} buckets.` : ""),
-    state: null,
-  };
-}));
+  const result = await burst(RUSH_JOBS, {
+    more: (count, capacity, startCapacity) => capacity === startCapacity && count < 40,
+  });
+  if (!result) return;
+  toast(`Rush hour: ${result.ids.length} jobs arrived.`
+    + (result.capacity > result.startCapacity
+      ? ` The hash map grew from ${result.startCapacity} to ${result.capacity} buckets.` : ""), "ok");
+});
 
 window.addEventListener("resize", drawHeapLines);
 

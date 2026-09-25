@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PrintFlow — Fair Priority-Based Print Job Management</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='1' width='10' height='5' rx='1' fill='%233b5bdb'/%3E%3Crect x='1' y='6' width='14' height='6' rx='2' fill='%231e2a4a'/%3E%3Crect x='4' y='10' width='8' height='5' rx='1' fill='%23fff' stroke='%231e2a4a'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 
@@ -79,7 +79,7 @@
         <h2>Printer</h2>
         <span id="printer-status" class="pill idle">IDLE</span>
       </div>
-      <div id="printer-body" class="printer-body"></div>
+      <div id="printer-body" class="printer-body" data-zone="printer"></div>
       <div class="printer-actions">
         <button id="btn-start" class="btn btn-primary" type="button">Start next job</button>
         <button id="btn-complete" class="btn btn-success" type="button">Complete current job</button>
@@ -111,9 +111,9 @@
       <div>
         <h3>Urgent / high priority — binary max-heap</h3>
         <p class="muted small">Key = (priority level, −arrival sequence). The root is always the next priority job.</p>
-        <div id="heap-tree" class="heap-tree"></div>
+        <div id="heap-tree" class="heap-tree" data-zone="heap"></div>
         <div class="array-label">Internal array</div>
-        <div id="heap-array" class="heap-array"></div>
+        <div id="heap-array" class="heap-array" data-zone="array"></div>
 
         <div id="heap-player" class="player">
           <div class="player-bar">
@@ -142,7 +142,7 @@
       <div>
         <h3>Normal — FIFO queue (linked nodes)</h3>
         <p class="muted small">Enqueue at REAR, dequeue from FRONT. Both O(1).</p>
-        <div id="queue-view" class="queue-view"></div>
+        <div id="queue-view" class="queue-view" data-zone="queue"></div>
 
         <div class="aging-box">
           <label class="check"><input id="aging-toggle" type="checkbox" checked> <strong>Fairness aging</strong></label>
@@ -160,12 +160,12 @@
       <h2>History</h2>
       <div class="history-cols">
         <div>
-          <h3>Completed</h3>
-          <ol id="completed-list" class="history-list"></ol>
+          <h3>Completed <span class="muted small">newest first</span></h3>
+          <ol id="completed-list" class="history-list" data-zone="history"></ol>
         </div>
         <div>
           <h3>Cancelled</h3>
-          <ol id="cancelled-list" class="history-list"></ol>
+          <ol id="cancelled-list" class="history-list" data-zone="cancelled"></ol>
         </div>
       </div>
     </div>
@@ -174,7 +174,7 @@
       <h2>Hash map — job ID → job</h2>
       <p class="muted small" id="hashmap-meta"></p>
       <div id="hashmap-resize" class="resize-note" hidden></div>
-      <div id="hashmap-view" class="hashmap-view"></div>
+      <div id="hashmap-view" class="hashmap-view" data-zone="hash"></div>
       <p class="muted small hash-legend"><span class="legend-swatch collision"></span> collision: several keys chained in one bucket.
         Search any ID to see its hash and the chain it walks.</p>
     </div>
@@ -215,6 +215,6 @@
   PrintFlow · FIFO queue + binary max-heap + hash map · Spring Boot + vanilla JavaScript
 </footer>
 
-<script src="script.js?v=4"></script>
+<script src="script.js?v=6"></script>
 </body>
 </html>

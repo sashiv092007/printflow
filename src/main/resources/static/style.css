@@ -347,3 +347,38 @@ dl.meta dd { margin: 0; word-break: break-word; }
 /* Brief highlight when something changes */
 .flash { animation: flash 1.2s ease-out; }
 @keyframes flash { from { box-shadow: 0 0 0 4px rgba(59, 91, 219, .45); } to { box-shadow: 0 0 0 4px rgba(59, 91, 219, 0); } }
+
+/* ---------- Motion ---------- */
+.fly-chip {
+  position: fixed; left: 0; top: 0; z-index: 95; pointer-events: none;
+  font-family: var(--mono); font-weight: 700; font-size: .85rem; white-space: nowrap;
+  padding: 6px 12px; border-radius: 999px; border: 2px solid var(--primary); background: #fff; color: var(--text);
+  box-shadow: 0 12px 28px rgba(16, 24, 40, .25);
+}
+.fly-chip.URGENT { border-color: var(--urgent); background: var(--urgent-bg); }
+.fly-chip.HIGH { border-color: var(--high); background: var(--high-bg); }
+.fly-chip.NORMAL { border-color: var(--normal); background: var(--normal-bg); }
+.stat.bump { animation: bump .5s ease-out; }
+@keyframes bump { 0% { transform: none; } 30% { transform: translateY(-3px); box-shadow: 0 6px 14px rgba(59, 91, 219, .18); } 100% { transform: none; } }
+.job-node .id-short { display: none; }
+
+/* Heap density: nodes shrink as the tree gets deeper, so it never needs a scrollbar */
+.heap-tree { overflow-x: hidden; }
+.heap-inner.d-compact .job-node { padding: 6px 3px; }
+.heap-inner.d-compact .job-node .doc { display: none; }
+.heap-inner.d-compact .job-node .id { font-size: .74rem; }
+.heap-inner.d-compact .job-node .tag { font-size: .58rem; }
+.heap-inner.d-mini .job-node, .heap-inner.d-dot .job-node { padding: 5px 1px; border-radius: 8px; }
+.heap-inner.d-mini .job-node .doc, .heap-inner.d-mini .job-node .tag, .heap-inner.d-mini .job-node .id { display: none; }
+.heap-inner.d-mini .job-node .id-short { display: block; font-family: var(--mono); font-weight: 700; font-size: .66rem; }
+.heap-inner.d-mini .heap-node-index, .heap-inner.d-dot .heap-node-index { font-size: .55rem; margin-bottom: 3px; }
+.heap-inner.d-mini .heap-level, .heap-inner.d-dot .heap-level { margin-bottom: 22px; }
+.heap-inner.d-dot .job-node { height: 16px; padding: 0; border-radius: 50%; max-width: 16px; }
+.heap-inner.d-dot .job-node > span { display: none; }
+.heap-inner.d-mini .heap-hole, .heap-inner.d-compact .heap-hole { height: 40px; font-size: .6rem; }
+.heap-inner.d-dot .heap-hole { height: 16px; width: 16px; border-radius: 50%; font-size: 0; }
+.heap-inner.d-dot .heap-slot, .heap-inner.d-mini .heap-slot { padding: 0 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stat.bump, .flash { animation: none; }
+}
