@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PrintFlow — Fair Priority-Based Print Job Management</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='1' width='10' height='5' rx='1' fill='%233b5bdb'/%3E%3Crect x='1' y='6' width='14' height='6' rx='2' fill='%231e2a4a'/%3E%3Crect x='4' y='10' width='8' height='5' rx='1' fill='%23fff' stroke='%231e2a4a'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="stylesheet" href="style.css?v=7">
 </head>
-<body>
+<body id="top">
 
 <header class="site-header">
   <div class="wrap header-inner">
@@ -32,13 +32,7 @@
       <p>A shared printer receives normal and urgent documents. Urgent documents must be printed first,
         but normal users must still be served fairly, in the order they arrived.</p>
     </div>
-    <ul class="rule-list">
-      <li><span class="badge urgent">URGENT</span> first</li>
-      <li><span class="badge high">HIGH</span> next</li>
-      <li><span class="badge normal">NORMAL</span> last, first-in-first-out</li>
-      <li>Equal priority → earlier arrival wins</li>
-      <li><span class="badge aged">AGED</span> a normal job passed over 3 times is promoted, so it is never starved</li>
-    </ul>
+    <a class="problem-link" href="#how-it-works">How it works ↓</a>
   </section>
 
   <!-- Stats -->
@@ -180,41 +174,91 @@
     </div>
   </section>
 
-  <!-- DSA explanation -->
-  <section class="grid-2">
-    <div class="card">
-      <h2>Data structures used</h2>
-      <table class="table">
-        <thead><tr><th>Structure</th><th>Purpose</th></tr></thead>
-        <tbody>
-          <tr><td><strong>FIFO Queue</strong><br><span class="muted small">linked nodes</span></td>
-              <td>Fair print order for normal jobs: first submitted, first printed.</td></tr>
-          <tr><td><strong>Binary Max-Heap</strong><br><span class="muted small">array-based</span></td>
-              <td>Always exposes the most urgent job at the root; earlier arrival breaks ties.</td></tr>
-          <tr><td><strong>Hash Map</strong><br><span class="muted small">separate chaining</span></td>
-              <td>Maps each job ID to its job object for O(1) search, status and cancellation.</td></tr>
-          <tr><td><strong>Lazy deletion</strong></td>
-              <td>Cancel only flips the status in the hash map. The scheduler skips cancelled jobs
-                when they reach the queue front or heap top, avoiding an O(n) removal.</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="card">
-      <h2>Time complexity</h2>
-      <table class="table" id="complexity-table">
-        <thead><tr><th>Operation</th><th>Time</th><th>How</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
-
 </main>
 
-<footer class="wrap footer muted small">
-  PrintFlow · FIFO queue + binary max-heap + hash map · Spring Boot + vanilla JavaScript
+<footer class="site-footer" id="how-it-works">
+  <a class="back-to-top" href="#top">Back to top</a>
+
+  <div class="footer-main">
+    <div class="wrap footer-cols">
+
+      <section class="footer-col">
+        <h3>Scheduling rules</h3>
+        <ul class="footer-list rules">
+          <li><span class="badge urgent">URGENT</span> first</li>
+          <li><span class="badge high">HIGH</span> next</li>
+          <li><span class="badge normal">NORMAL</span> last, first-in-first-out</li>
+          <li>Equal priority → earlier arrival wins</li>
+          <li><span class="badge aged">AGED</span> a normal job passed over 3 times is promoted, so it is never starved</li>
+        </ul>
+      </section>
+
+      <section class="footer-col">
+        <h3>Data structures used</h3>
+        <dl class="footer-ds">
+          <dt>FIFO Queue <span>linked nodes</span></dt>
+          <dd>Fair print order for normal jobs: first submitted, first printed.</dd>
+          <dt>Binary Max-Heap <span>array-based</span></dt>
+          <dd>Always exposes the most urgent job at the root; earlier arrival breaks ties.</dd>
+          <dt>Hash Map <span>separate chaining</span></dt>
+          <dd>Maps each job ID to its job object for O(1) search, status and cancellation.</dd>
+          <dt>Lazy deletion</dt>
+          <dd>Cancel only flips the status in the hash map. The scheduler skips cancelled jobs when they
+            reach the queue front or heap top, avoiding an O(n) removal.</dd>
+        </dl>
+      </section>
+
+      <section class="footer-col footer-col-wide">
+        <h3>Time complexity</h3>
+        <table class="footer-table" id="complexity-table">
+          <thead><tr><th>Operation</th><th>Time</th><th>How</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="footer-col">
+        <h3>Try the demo</h3>
+        <ul class="footer-list links">
+          <li><button type="button" class="footer-action" data-click="btn-sample">Load demo jobs</button></li>
+          <li><button type="button" class="footer-action" data-click="btn-rush">Rush hour</button></li>
+          <li><a href="#heap-tree">Watch the heap</a></li>
+          <li><a href="#queue-view">FIFO queue &amp; aging</a></li>
+          <li><a href="#hashmap-view">Hash map buckets</a></li>
+          <li><a href="#search-input">Search &amp; cancel a job</a></li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+
+  <div class="footer-brand">
+    <div class="wrap footer-brand-inner">
+      <span class="footer-logo"><span class="logo">⎙</span> PrintFlow</span>
+      <span class="footer-chip">Java 17</span>
+      <span class="footer-chip">Spring Boot</span>
+      <span class="footer-chip">REST API · 10 endpoints</span>
+      <span class="footer-chip">Vanilla JavaScript</span>
+    </div>
+  </div>
+
+  <div class="footer-bottom">
+    <div class="wrap">
+      <div class="footer-files">
+        <div><strong>JobQueue.java</strong><span>Linked-node FIFO<br>enqueue / dequeue O(1)</span></div>
+        <div><strong>MaxHeap.java</strong><span>Array binary heap<br>heapifyUp / heapifyDown</span></div>
+        <div><strong>JobHashMap.java</strong><span>Separate chaining<br>doubles above 0.75</span></div>
+        <div><strong>PrintScheduler.java</strong><span>Ties them together<br>aging + lazy deletion</span></div>
+      </div>
+      <p class="footer-note">No built-in PriorityQueue, ArrayDeque or HashMap: every structure is written from scratch.</p>
+      <nav class="footer-legal">
+        <a href="https://github.com/sashiv092007/printflow" target="_blank" rel="noopener">GitHub repository</a>
+        <span>DSA Capstone Project</span>
+        <span>© 2026 PrintFlow</span>
+      </nav>
+    </div>
+  </div>
 </footer>
 
-<script src="script.js?v=6"></script>
+<script src="script.js?v=7"></script>
 </body>
 </html>

@@ -467,7 +467,7 @@ function renderHashMap(resized = false) {
 
 function renderComplexities() {
   $("complexity-table").querySelector("tbody").innerHTML = structures.complexities.map((row) => `
-    <tr><td>${esc(row.operation)}</td><td class="time">${esc(row.time)}</td><td class="muted">${esc(row.how)}</td></tr>`).join("");
+    <tr><td>${esc(row.operation)}</td><td class="time">${esc(row.time)}</td><td class="how">${esc(row.how)}</td></tr>`).join("");
 }
 
 /** Every job known to the dashboard, from each part of the state. */
@@ -1128,6 +1128,14 @@ $("btn-rush").addEventListener("click", async () => {
   toast(`Rush hour: ${result.ids.length} jobs arrived.`
     + (result.capacity > result.startCapacity
       ? ` The hash map grew from ${result.startCapacity} to ${result.capacity} buckets.` : ""), "ok");
+});
+
+// Footer shortcuts press the matching header button.
+document.querySelectorAll(".footer-action").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    $(btn.dataset.click).click();
+  });
 });
 
 window.addEventListener("resize", drawHeapLines);
