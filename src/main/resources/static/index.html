@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PrintFlow — Fair Priority-Based Print Job Management</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='1' width='10' height='5' rx='1' fill='%233b5bdb'/%3E%3Crect x='1' y='6' width='14' height='6' rx='2' fill='%231e2a4a'/%3E%3Crect x='4' y='10' width='8' height='5' rx='1' fill='%23fff' stroke='%231e2a4a'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,6 +17,7 @@
     </div>
     <div class="header-actions">
       <button id="btn-sample" class="btn btn-ghost" type="button">Load demo jobs</button>
+      <button id="btn-rush" class="btn btn-ghost" type="button" title="A burst of mixed-priority jobs: shows aging, hash collisions and a resize">Rush hour</button>
       <button id="btn-reset" class="btn btn-ghost" type="button">Reset</button>
     </div>
   </div>
@@ -35,6 +37,7 @@
       <li><span class="badge high">HIGH</span> next</li>
       <li><span class="badge normal">NORMAL</span> last, first-in-first-out</li>
       <li>Equal priority → earlier arrival wins</li>
+      <li><span class="badge aged">AGED</span> a normal job passed over 3 times is promoted, so it is never starved</li>
     </ul>
   </section>
 
@@ -111,11 +114,42 @@
         <div id="heap-tree" class="heap-tree"></div>
         <div class="array-label">Internal array</div>
         <div id="heap-array" class="heap-array"></div>
+
+        <div id="heap-player" class="player">
+          <div class="player-bar">
+            <div>
+              <span id="player-title" class="player-title">Heap animation</span>
+              <span id="player-step" class="player-step"></span>
+            </div>
+            <div class="player-controls">
+              <button id="pl-pause" class="btn btn-ghost btn-sm" type="button" disabled>Pause</button>
+              <button id="pl-next" class="btn btn-ghost btn-sm" type="button" disabled>Next step</button>
+              <button id="pl-skip" class="btn btn-ghost btn-sm" type="button" disabled>Skip</button>
+              <button id="pl-replay" class="btn btn-ghost btn-sm" type="button" disabled>Replay</button>
+              <select id="pl-speed" class="select-sm" aria-label="Animation speed">
+                <option value="0.5">0.5×</option>
+                <option value="1" selected>1×</option>
+                <option value="2">2×</option>
+              </select>
+              <label class="check"><input id="pl-enabled" type="checkbox" checked> Animate</label>
+            </div>
+          </div>
+          <p id="player-text" class="player-text">Submit a High or Urgent job, or print one, to watch the heap work step by step.</p>
+          <div id="player-counters" class="player-counters"></div>
+          <pre id="player-code" class="player-code" hidden></pre>
+        </div>
       </div>
       <div>
         <h3>Normal — FIFO queue (linked nodes)</h3>
         <p class="muted small">Enqueue at REAR, dequeue from FRONT. Both O(1).</p>
         <div id="queue-view" class="queue-view"></div>
+
+        <div class="aging-box">
+          <label class="check"><input id="aging-toggle" type="checkbox" checked> <strong>Fairness aging</strong></label>
+          <p class="muted small">Each time the printer picks a job, a normal job at the FRONT that has been passed over
+            <strong id="aging-turns">3</strong> times moves into the heap as HIGH. A stream of urgent jobs can never
+            starve it. ⏳ shows how close each job is. The front is always the oldest job, so the check is O(1).</p>
+        </div>
       </div>
     </div>
   </section>
@@ -139,7 +173,10 @@
     <div class="card">
       <h2>Hash map — job ID → job</h2>
       <p class="muted small" id="hashmap-meta"></p>
+      <div id="hashmap-resize" class="resize-note" hidden></div>
       <div id="hashmap-view" class="hashmap-view"></div>
+      <p class="muted small hash-legend"><span class="legend-swatch collision"></span> collision: several keys chained in one bucket.
+        Search any ID to see its hash and the chain it walks.</p>
     </div>
   </section>
 
