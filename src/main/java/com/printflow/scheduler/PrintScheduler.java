@@ -15,6 +15,11 @@ import org.springframework.stereotype.Service;
  * when priorities are equal. HIGH/URGENT jobs live in the max-heap and NORMAL
  * jobs in the FIFO queue, so the heap is always checked first.
  *
+ * Fairness aging: each time the printer picks a job, a NORMAL job at the
+ * queue front that has been passed over AGING_TURNS times is promoted into
+ * the heap as HIGH, so a stream of priority jobs cannot starve it forever.
+ * The front is always the oldest normal job, so the check is O(1).
+ *
  * Cancellation uses lazy deletion: only the hash-map entry's status changes.
  * The job stays in the queue/heap and is discarded when it reaches the front
  * or the heap top.
@@ -25,6 +30,7 @@ import org.springframework.stereotype.Service;
 public class PrintScheduler {
 
     public static final int FIRST_JOB_NUMBER = 1001;
+    public static final int AGING_TURNS = 3;
 
     /** Result of completing a job: the finished job and the one that started next (or null). */
     public record Completion(PrintJob completed, PrintJob next) {}
@@ -36,6 +42,8 @@ public class PrintScheduler {
     private List<PrintJob> completed;
     private List<PrintJob> cancelled;
     private List<String> lastSkipped;   // IDs discarded by lazy deletion on the last selection
+    private List<String> lastPromoted;  // IDs promoted by fairness aging on the last selection
+    private boolean agingEnabled = true;   // a setting, so reset() keeps it
     private int turn;                   // increments each time a job starts printing
     private int nextNumber;
     private int sequence;
@@ -52,6 +60,7 @@ public class PrintScheduler {
         completed = new ArrayList<>();
         cancelled = new ArrayList<>();
         lastSkipped = new ArrayList<>();
+        lastPromoted = new ArrayList<>();
         turn = 0;
         nextNumber = FIRST_JOB_NUMBER;
         sequence = 0;
@@ -99,9 +108,11 @@ public class PrintScheduler {
         PrintJob job = new PrintJob(jobId, user, document, pageCount, level, sequence, turn);
 
         jobsById.put(jobId, job);
+        priorityHeap.clearTrace();
         if (level == Priority.NORMAL) {
             normalQueue.enqueue(job);
         } else {
+            priorityHeap.traceLabel("submit", "Submit " + jobId + " (" + level + "): heap insert");
             priorityHeap.insert(job);
         }
         return job;
@@ -128,6 +139,7 @@ public class PrintScheduler {
             case CANCELLED -> throw new SchedulerException("Job is already cancelled.", 409);
             case WAITING -> { }
         }
+        priorityHeap.clearTrace();   // cancelling never touches the heap
         job.setStatus(JobStatus.CANCELLED);
         job.setFinishedTurn(turn);
         cancelled.add(job);
@@ -142,6 +154,8 @@ public class PrintScheduler {
      */
     public synchronized PrintJob getNextValidJob() {
         while (!priorityHeap.isEmpty() && priorityHeap.peek().getStatus() == JobStatus.CANCELLED) {
+            priorityHeap.traceLabel("discard", "Lazy deletion: " + priorityHeap.peek().getJobId()
+                    + " was cancelled, so it is discarded from the top");
             lastSkipped.add(priorityHeap.extractMax().getJobId());
         }
         while (!normalQueue.isEmpty() && normalQueue.peek().getStatus() == JobStatus.CANCELLED) {
@@ -158,7 +172,6 @@ public class PrintScheduler {
         if (currentJob != null) {
             throw new SchedulerException("Printer is busy. Complete the current job first.", 409);
         }
-        lastSkipped = new ArrayList<>();
         PrintJob job = takeNextValidJob();
         if (job == null) {
             throw new SchedulerException("No waiting jobs.", 409);
@@ -177,17 +190,21 @@ public class PrintScheduler {
         completed.add(job);
         currentJob = null;
 
-        lastSkipped = new ArrayList<>();
         return new Completion(job, takeNextValidJob());
     }
 
     private PrintJob takeNextValidJob() {
+        lastSkipped = new ArrayList<>();
+        lastPromoted = new ArrayList<>();
+        priorityHeap.clearTrace();
+        applyAging();
         PrintJob job = getNextValidJob();
         if (job == null) {
             return null;
         }
-        // The heap only holds HIGH/URGENT jobs, so if it is non-empty its top was chosen.
+        // The heap only holds HIGH/URGENT (and aged) jobs, so if it is non-empty its top was chosen.
         if (!priorityHeap.isEmpty()) {
+            priorityHeap.traceLabel("print", "Print the next job: extractMax takes " + job.getJobId() + " from the root");
             priorityHeap.extractMax();
         } else {
             normalQueue.dequeue();
@@ -199,10 +216,52 @@ public class PrintScheduler {
         return job;
     }
 
+    /**
+     * Promote every NORMAL job at the queue front that has waited AGING_TURNS
+     * turns (jobs started since it arrived). Cancelled jobs met at the front
+     * are discarded, as in getNextValidJob.
+     */
+    private void applyAging() {
+        while (agingEnabled && !normalQueue.isEmpty()) {
+            PrintJob front = normalQueue.peek();
+            if (front.getStatus() == JobStatus.CANCELLED) {
+                lastSkipped.add(normalQueue.dequeue().getJobId());
+                continue;
+            }
+            int waited = turn - front.getSubmittedTurn();
+            if (waited < AGING_TURNS) {
+                break;
+            }
+            normalQueue.dequeue();
+            front.promote(turn);
+            priorityHeap.traceLabel("aging", "Fairness aging: " + front.getJobId() + " was passed over "
+                    + waited + " times, so it moves from the queue into the heap as HIGH");
+            priorityHeap.insert(front);
+            lastPromoted.add(front.getJobId());
+        }
+    }
+
+    // ---- settings -----------------------------------------------------
+
+    public synchronized void setAgingEnabled(boolean enabled) {
+        agingEnabled = enabled;
+        priorityHeap.clearTrace();
+    }
+
+    public synchronized boolean isAgingEnabled() { return agingEnabled; }
+
     // ---- accessors ----------------------------------------------------
 
     public synchronized PrintJob getCurrentJob() { return currentJob; }
     public synchronized List<String> getLastSkipped() { return List.copyOf(lastSkipped); }
+    public synchronized List<String> getLastPromoted() { return List.copyOf(lastPromoted); }
+    public synchronized List<Map<String, Object>> getHeapTrace() { return priorityHeap.getTrace(); }
+
+    /** How a hash-map lookup of this key works: hash, bucket, chain and comparisons. */
+    public synchronized Map<String, Object> describeLookup(String jobId) {
+        String key = jobId == null ? "" : jobId.strip().toUpperCase(Locale.ROOT);
+        return jobsById.describeLookup(key);
+    }
     public synchronized int getTurn() { return turn; }
     public synchronized int getHashMapCapacity() { return jobsById.capacity(); }
     public synchronized int getJobCount() { return jobsById.size(); }
@@ -226,6 +285,11 @@ public class PrintScheduler {
         hashMap.put("size", jobsById.size());
         hashMap.put("capacity", jobsById.capacity());
         hashMap.put("buckets", jobsById.bucketView());
+        hashMap.put("resizes", jobsById.resizeHistory());
+
+        Map<String, Object> aging = new LinkedHashMap<>();
+        aging.put("enabled", agingEnabled);
+        aging.put("turns", AGING_TURNS);
 
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("totalJobs", jobsById.size());
@@ -244,6 +308,7 @@ public class PrintScheduler {
         state.put("lastSkipped", List.copyOf(lastSkipped));
         state.put("turn", turn);
         state.put("hashMap", hashMap);
+        state.put("aging", aging);
         state.put("stats", stats);
         return state;
     }
@@ -292,6 +357,7 @@ public class PrintScheduler {
         hashMap.put("capacity", jobsById.capacity());
         hashMap.put("loadFactor", (double) jobsById.size() / jobsById.capacity());
         hashMap.put("buckets", jobsById.bucketView());
+        hashMap.put("resizes", jobsById.resizeHistory());
 
         Map<String, Object> structures = new LinkedHashMap<>();
         structures.put("normalQueue", queue);
@@ -303,7 +369,8 @@ public class PrintScheduler {
                 complexity("Search job by ID", "O(1) average", "Hash map lookup"),
                 complexity("Cancel job", "O(1) average", "Hash map lookup + status change (lazy deletion)"),
                 complexity("Print next urgent/high job", "O(log n)", "extractMax + heapifyDown"),
-                complexity("Print next normal job", "O(1)", "Dequeue from the front")));
+                complexity("Print next normal job", "O(1)", "Dequeue from the front"),
+                complexity("Fairness aging check", "O(1)", "Peek at the queue front (always the oldest); a promotion is one heap insert")));
         return structures;
     }
 

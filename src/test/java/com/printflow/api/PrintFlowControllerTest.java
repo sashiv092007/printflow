@@ -95,7 +95,29 @@ class PrintFlowControllerTest {
                 .andExpect(jsonPath("$.priorityHeap.nodes[1].parent").value(0))
                 .andExpect(jsonPath("$.normalQueue.front").value("PF-1003"))
                 .andExpect(jsonPath("$.hashMap.size").value(3))
-                .andExpect(jsonPath("$.complexities.length()").value(6));
+                .andExpect(jsonPath("$.complexities.length()").value(7));
+    }
+
+    @Test
+    void heapTraceHashLookupAndAgingSetting() throws Exception {
+        submit("a", "a.pdf", 1, "HIGH");
+        submit("b", "b.pdf", 1, "URGENT")
+                .andExpect(jsonPath("$.heapTrace[0].op").value("phase"))
+                .andExpect(jsonPath("$.heapTrace[1].op").value("insert"));
+
+        mvc.perform(get("/api/hash/pf-1001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.key").value("PF-1001"))
+                .andExpect(jsonPath("$.bucket").value(7))
+                .andExpect(jsonPath("$.found").value(true))
+                .andExpect(jsonPath("$.comparisons").value(1));
+
+        mvc.perform(put("/api/settings/aging").contentType(MediaType.APPLICATION_JSON).content("{\"enabled\": false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state.aging.enabled").value(false));
+        mvc.perform(put("/api/settings/aging").contentType(MediaType.APPLICATION_JSON).content("{\"enabled\": true}"))
+                .andExpect(jsonPath("$.state.aging.enabled").value(true))
+                .andExpect(jsonPath("$.state.aging.turns").value(3));
     }
 
     @Test

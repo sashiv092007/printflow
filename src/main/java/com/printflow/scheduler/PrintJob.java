@@ -13,6 +13,7 @@ public class PrintJob {
     private JobStatus status = JobStatus.WAITING;
     private Integer startedTurn;
     private Integer finishedTurn;
+    private Integer agedTurn;          // turn when fairness aging promoted it, or null
 
     public PrintJob(String jobId, String user, String document, int pages,
                     Priority priority, int sequence, int submittedTurn) {
@@ -36,6 +37,22 @@ public class PrintJob {
         return sequence < other.sequence;
     }
 
+    /**
+     * Fairness aging: a NORMAL job that has waited too long is treated as HIGH.
+     * Its original priority is kept for display; only the heap level changes.
+     */
+    void promote(int turn) {
+        this.agedTurn = turn;
+    }
+
+    public boolean isAged() { return agedTurn != null; }
+    public Integer getAgedTurn() { return agedTurn; }
+
+    /** The priority the heap actually uses (HIGH for an aged NORMAL job). */
+    public Priority getEffectivePriority() {
+        return isAged() ? Priority.HIGH : priority;
+    }
+
     /** The comparison key (level, -sequence), exposed for the visualiser. */
     public int[] getKey() {
         return new int[] {getLevel(), -sequence};
@@ -46,7 +63,7 @@ public class PrintJob {
     public String getDocument() { return document; }
     public int getPages() { return pages; }
     public Priority getPriority() { return priority; }
-    public int getLevel() { return priority.getLevel(); }
+    public int getLevel() { return getEffectivePriority().getLevel(); }
     public int getSequence() { return sequence; }
     public int getSubmittedTurn() { return submittedTurn; }
     public JobStatus getStatus() { return status; }

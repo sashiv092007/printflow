@@ -32,13 +32,19 @@ public class JobHashMap {
     private Entry[] buckets = new Entry[INITIAL_CAPACITY];
     private int size;
 
-    /** Polynomial rolling hash of the string key, reduced to a bucket index. */
-    private int indexFor(String key, int capacity) {
+    private final List<Map<String, Integer>> resizes = new ArrayList<>();
+
+    /** Polynomial rolling hash of the string key: h = h * 31 + char, kept within 2^32. */
+    static long hash(String key) {
         long h = 0;
         for (int i = 0; i < key.length(); i++) {
-            h = (h * 31 + key.charAt(i)) % 4294967296L;   // keep within 2^32
+            h = (h * 31 + key.charAt(i)) % 4294967296L;
         }
-        return (int) (h % capacity);
+        return h;
+    }
+
+    private int indexFor(String key, int capacity) {
+        return (int) (hash(key) % capacity);
     }
 
     /** Insert or overwrite. O(1) average. */
@@ -53,6 +59,11 @@ public class JobHashMap {
         buckets[index] = new Entry(key, value, buckets[index]);
         size++;
         if ((double) size / buckets.length > MAX_LOAD_FACTOR) {
+            Map<String, Integer> event = new LinkedHashMap<>();
+            event.put("from", buckets.length);
+            event.put("to", buckets.length * 2);
+            event.put("entries", size);
+            resizes.add(event);
             resize(buckets.length * 2);
         }
     }
@@ -65,6 +76,39 @@ public class JobHashMap {
             }
         }
         return null;
+    }
+
+    /**
+     * Explain a lookup for the dashboard: the hash, the bucket, the chain
+     * walked, and how many key comparisons it took.
+     */
+    public Map<String, Object> describeLookup(String key) {
+        long h = hash(key);
+        int index = (int) (h % buckets.length);
+        List<String> chain = new ArrayList<>();
+        int comparisons = 0;
+        boolean found = false;
+        for (Entry e = buckets[index]; e != null; e = e.next) {
+            chain.add(e.key);
+            if (!found) {
+                comparisons++;
+                found = e.key.equals(key);
+            }
+        }
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("key", key);
+        view.put("hash", h);
+        view.put("capacity", buckets.length);
+        view.put("bucket", index);
+        view.put("chain", chain);
+        view.put("comparisons", comparisons);
+        view.put("found", found);
+        return view;
+    }
+
+    /** Every resize so far: from/to bucket counts and the entry count that triggered it. */
+    public List<Map<String, Integer>> resizeHistory() {
+        return List.copyOf(resizes);
     }
 
     public boolean containsKey(String key) {

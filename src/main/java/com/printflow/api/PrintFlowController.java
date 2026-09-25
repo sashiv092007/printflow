@@ -79,6 +79,20 @@ public class PrintFlowController {
         return body;
     }
 
+    /** How the hash map finds this key (works for unknown keys too). */
+    @GetMapping("/hash/{key}")
+    public Map<String, Object> describeLookup(@PathVariable String key) {
+        return scheduler.describeLookup(key);
+    }
+
+    /** Body: {"enabled": true|false} */
+    @PutMapping("/settings/aging")
+    public Map<String, Object> setAging(@RequestBody Map<String, Object> body) {
+        boolean enabled = Boolean.parseBoolean(text(body.get("enabled")));
+        scheduler.setAgingEnabled(enabled);
+        return response("Fairness aging turned " + (enabled ? "on" : "off") + ".", null, null);
+    }
+
     @GetMapping("/structures")
     public Map<String, Object> getStructures() {
         return scheduler.getStructures();
@@ -97,6 +111,8 @@ public class PrintFlowController {
             body.put(key, value);
         }
         body.put("skipped", scheduler.getLastSkipped());
+        body.put("promoted", scheduler.getLastPromoted());
+        body.put("heapTrace", scheduler.getHeapTrace());
         body.put("state", scheduler.getState());
         return body;
     }

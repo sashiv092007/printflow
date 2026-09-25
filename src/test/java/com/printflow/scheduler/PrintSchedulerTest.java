@@ -63,6 +63,7 @@ class PrintSchedulerTest {
 
     @Test
     void priorityOrderAndTieBreaking() {
+        s.setAgingEnabled(false);   // pure priority order; aging is tested separately
         String[] plan = {"NORMAL", "HIGH", "URGENT", "NORMAL", "HIGH", "URGENT",
                          "HIGH", "NORMAL", "URGENT", "HIGH", "NORMAL", "URGENT"};
         for (int i = 0; i < plan.length; i++) {
@@ -136,6 +137,90 @@ class PrintSchedulerTest {
         for (int i = 0; i < 40; i++) {
             assertEquals("d" + i + ".pdf", s.getJob("PF-" + (1001 + i)).getDocument());
         }
+    }
+
+    @Test
+    void agingPromotesAStarvedNormalJob() {
+        s.submitJob("n", "normal.pdf", 1, "NORMAL");         // PF-1001
+        for (int i = 0; i < 5; i++) {
+            s.submitJob("h", "high" + i + ".pdf", 1, "HIGH"); // PF-1002 .. PF-1006
+        }
+        List<String> printed = new ArrayList<>();
+        printed.add(s.startNextJob().getJobId());
+        PrintJob next;
+        while ((next = s.completeCurrentJob().next()) != null) {
+            printed.add(next.getJobId());
+            if (next.getJobId().equals("PF-1001")) {
+                assertEquals(List.of("PF-1001"), s.getLastPromoted());
+            }
+        }
+        // Passed over AGING_TURNS = 3 times, then it outranks the later HIGH jobs.
+        assertEquals(List.of("PF-1002", "PF-1003", "PF-1004", "PF-1001", "PF-1005", "PF-1006"), printed);
+        PrintJob aged = s.getJob("PF-1001");
+        assertTrue(aged.isAged());
+        assertEquals(Priority.NORMAL, aged.getPriority());
+        assertEquals(Priority.HIGH, aged.getEffectivePriority());
+    }
+
+    @Test
+    void withoutAgingTheNormalJobWaitsForTheWholeHeap() {
+        s.setAgingEnabled(false);
+        s.submitJob("n", "normal.pdf", 1, "NORMAL");
+        for (int i = 0; i < 5; i++) {
+            s.submitJob("h", "high" + i + ".pdf", 1, "HIGH");
+        }
+        String last = s.startNextJob().getJobId();
+        PrintJob next;
+        while ((next = s.completeCurrentJob().next()) != null) {
+            last = next.getJobId();
+        }
+        assertEquals("PF-1001", last);
+    }
+
+    @Test
+    void heapTraceRecordsEachStep() {
+        s.submitJob("a", "a.pdf", 1, "HIGH");     // PF-1001
+        s.submitJob("b", "b.pdf", 1, "HIGH");     // PF-1002
+        s.submitJob("c", "c.pdf", 1, "URGENT");   // PF-1003 bubbles from [2] to the root
+
+        List<Map<String, Object>> trace = s.getHeapTrace();
+        List<String> ops = trace.stream().map(step -> (String) step.get("op")).toList();
+        assertEquals(List.of("phase", "insert", "compare", "swap", "settle"), ops);
+        assertEquals(List.of("PF-1003", "PF-1002", "PF-1001"), trace.get(trace.size() - 1).get("heap"));
+
+        s.startNextJob();
+        trace = s.getHeapTrace();
+        assertEquals("remove", trace.get(1).get("op"));
+        assertEquals("PF-1003", trace.get(1).get("jobId"));
+        assertEquals("move", trace.get(2).get("op"));
+        assertEquals(List.of("PF-1001", "PF-1002"), trace.get(trace.size() - 1).get("heap"));
+
+        s.cancelJob("PF-1002");
+        assertTrue(s.getHeapTrace().isEmpty());
+    }
+
+    @Test
+    void hashCollisionsAndResize() {
+        for (int i = 0; i < 12; i++) {
+            s.submitJob("u", "d" + i + ".pdf", 1, "NORMAL");
+        }
+        // PF-1012 lands in the same bucket as PF-1001 and is chained in front of it.
+        Map<String, Object> lookup = s.describeLookup("PF-1001");
+        assertEquals(7, lookup.get("bucket"));
+        assertEquals(List.of("PF-1012", "PF-1001"), lookup.get("chain"));
+        assertEquals(2, lookup.get("comparisons"));
+        assertEquals(16, s.getHashMapCapacity());
+
+        s.submitJob("u", "d12.pdf", 1, "NORMAL");   // 13 / 16 > 0.75
+        assertEquals(32, s.getHashMapCapacity());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Integer>> resizes =
+                (List<Map<String, Integer>>) ((Map<?, ?>) s.getState().get("hashMap")).get("resizes");
+        assertEquals(List.of(Map.of("from", 16, "to", 32, "entries", 13)), resizes);
+
+        Map<String, Object> missing = s.describeLookup("pf-9999");
+        assertEquals(false, missing.get("found"));
+        assertEquals("PF-9999", missing.get("key"));
     }
 
     @Test
